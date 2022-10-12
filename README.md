@@ -77,6 +77,10 @@ Example of command line:
 -p /home/peixott/beegfs/Programs/plink2 -O PipelineTest4
  ```
  
+ ## Acknowledgements
+
+This work is supported by NIH Grant R01 1R01NS112499-01A1, MJFF Grant ID: 18298 and ASAP-GP2
+ 
  ### Contact
  
  Developer: Thiago Peixoto Leal. PhD (PEIXOTT@ccf.org or thpeixotol@hotmail.com)
