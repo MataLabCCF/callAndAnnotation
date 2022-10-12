@@ -1,4 +1,4 @@
-# Annotation
+# From Illumina to annotation
 
 This code was created to perform the variant calling and annotation on Illumina files.
 
@@ -19,6 +19,8 @@ To be able to run this code you will need:
  ## The process
  
  ![Pipeline](./Figures/pipelineToGitHUb.png)
+ 
+The QC based on IAAP parameters was inspired by this [document](https://jmg.bmj.com/content/jmedgenet/55/11/765/DC2/embed/inline-supplementary-material-2.pdf?download=true). The basic genotype QC was inspired by previous [work](https://github.com/ldgh/Smart-cleaning-public)
  
  ## Parameters
  
