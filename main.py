@@ -685,9 +685,10 @@ if __name__ == '__main__':
                           required=False, default="")
     args = parser.parse_args()
 
+    folder = createFolder(args.outputFolder)
+
     log = open(f"{args.outputFolder}_Commands.txt", "w")
 
-    folder = createFolder(args.outputFolder)
     folderGTC = createFolder(folder+"/GTC/")
     generateGTC(args.iaap, args.bpm, args.egt, args.folder, folderGTC, args.threads)
     #generatePED(args.iaap, args.bpm, args.egt, args.folder, folderGTC, args.threads)
