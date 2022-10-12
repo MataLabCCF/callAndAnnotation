@@ -79,7 +79,7 @@ Example of command line:
  
  ## Acknowledgements
 
-This work is supported by NIH Grant R01 1R01NS112499-01A1, MJFF Grant ID: 18298 and ASAP-GP2
+This work is supported by NIH Grant R01 1R01NS112499-01A1, MJFF Grant ID: 18298, ASAP-GP2 and Parkinson's Foundation
  
  ### Contact
  
