@@ -15,7 +15,7 @@ def createFolder(folderName):
     return folderName
 
 def execute(commandLine):
-    log.write(commandLine+"\n\n")
+    print(commandLine)
     os.system(commandLine)
 
 #=========================================================== QC ====================================================
@@ -687,8 +687,6 @@ if __name__ == '__main__':
 
     folder = createFolder(args.outputFolder)
 
-    log = open(f"{args.outputFolder}_Commands.txt", "w")
-
     folderGTC = createFolder(folder+"/GTC/")
     generateGTC(args.iaap, args.bpm, args.egt, args.folder, folderGTC, args.threads)
     #generatePED(args.iaap, args.bpm, args.egt, args.folder, folderGTC, args.threads)
@@ -708,4 +706,3 @@ if __name__ == '__main__':
         variantInfo = readPreviousSearchFile(args.previousSearch)
 
     variantInfo = openVCFAndSearch(VCFFinal, variantInfo, anotFolder, args.outputName, args.correspondenceList)
-    log.close()
