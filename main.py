@@ -46,7 +46,8 @@ def gtc2VCF(bcftools, bpm, egt, csv, folderGTC, allGTCFolder, genomeReference, v
 def generateGTC(iaap, bpm, egt, folder, outFolder, threads):
     threadsTest = 4
 
-    line = f"{iaap} gencall {bpm} {egt} -f {folder} --output-gtc {outFolder} --gender-estimate-call-rate-threshold -0.1 -t {threadsTest}"
+    line = f"{iaap} gencall {bpm} {egt} -f {folder} --output-gtc {outFolder} --gender-estimate-call-rate-threshold " \
+           f"-0.1 -t {threadsTest}"
     execute(line)
 
 #def generatePED(iaap, bpm, egt, folder, outFolder, threads):
