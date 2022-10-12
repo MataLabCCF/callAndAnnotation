@@ -2,6 +2,8 @@ import myvariant
 import argparse
 import gzip
 import os
+import numpy as np
+
 
 mv = myvariant.MyVariantInfo()
 
@@ -12,10 +14,9 @@ def createFolder(folderName):
 
     return folderName
 
-def execute(commandLine, toRun = False):
-    print(commandLine)
-    if toRun:
-        os.system(commandLine)
+def execute(commandLine):
+    log.write(commandLine+"\n\n")
+    os.system(commandLine)
 
 #=========================================================== QC ====================================================
 def gtc2VCF(bcftools, bpm, egt, csv, folderGTC, allGTCFolder, genomeReference, vcfFolder, threads, outputName):
@@ -37,9 +38,6 @@ def gtc2VCF(bcftools, bpm, egt, csv, folderGTC, allGTCFolder, genomeReference, v
     line = f"{bcftools} index {vcfFolder}/{outputName}_Norm.vcf.gz"
     execute(line)
 
-
-    #line = f"{bcftools} plugin fill-tags -Oz -o  {vcfFolder}/{outputName}_Fill.vcf.gz {vcfFolder}/{outputName}_Norm.vcf.gz"
-    #execute(line)
     line = f"{bcftools} index {vcfFolder}/{outputName}_Norm.vcf.gz"
     execute(line)
 
@@ -97,19 +95,19 @@ def basicVCFQC(VCF, parametersQC, bcftools, vcfFolder, vcfName):
 
 def basicGenotypingQC(VCF, folder, name, plink2):
     folderPGEN = f"{folder}/PGEN"
-    execute(f"mkdir {folderPGEN}", True)
+    execute(f"mkdir {folderPGEN}")
 
     #Convert
-    execute(f"{plink2} --vcf {VCF} --make-pfile --out {folderPGEN}/{name}", True)
+    execute(f"{plink2} --vcf {VCF} --make-pfile --out {folderPGEN}/{name}")
 
     #Remove missing
-    execute(f"{plink2} --pfile {folderPGEN}/{name} --geno 0.05 --mind 0.05 --make-pgen --out {folderPGEN}/{name}_missing", True)
+    execute(f"{plink2} --pfile {folderPGEN}/{name} --geno 0.05 --mind 0.05 --make-pgen --out {folderPGEN}/{name}_missing")
 
     #Remove big deviation on HWE
-    execute(f"{plink2} --pfile {folderPGEN}/{name}_missing --hwe 1e-10 --make-pgen --out {folderPGEN}/{name}_HWE", True)
+    execute(f"{plink2} --pfile {folderPGEN}/{name}_missing --hwe 1e-10 --make-pgen --out {folderPGEN}/{name}_HWE")
 
     #PGEN to VCF
-    execute(f"{plink2} --pfile {folderPGEN}/{name}_HWE --recode vcf-iid --out {folderPGEN}/{name}_QC", True)
+    execute(f"{plink2} --pfile {folderPGEN}/{name}_HWE --recode vcf-iid --out {folderPGEN}/{name}_QC")
     return f"{folderPGEN}/{name}_QC.vcf"
 
 #=========================================================== Anotation ====================================================
@@ -134,9 +132,8 @@ def readPreviousSearchFile(MyVariantFile):
 
             for i in range(0, len(split)):
                 if i != keyIndex:
-                    dictInfo[ID][header] = ""
-                    dictInfo[ID][header] = split[i]
-            dictInfo[ID]["check"] = True
+                    dictInfo[ID][headerLine[i]] = ""
+                    dictInfo[ID][headerLine[i]] = split[i]
 
     return dictInfo
 
@@ -186,29 +183,46 @@ def readVCFs(vcfName, variantInfo):
                     searches[key]["alleles"] = split[-1]
                     countToSearch = countToSearch + 1
             count = count + 1
-    print(f"\tThe VCF has {count} varaints, which {countToSearch} is new \n")
+    print(f"\tThe VCF has {count} variants, which {countToSearch} is new \n")
     return searches
 
 
 def dbsnpData(dictData):
-    alleles = []
-    allelesFreq = []
+        alleles = ""
+        allelesFreq = ""
 
-    rsID = dictData['rsid']
-    if 'alleles' in dictData:
-        for observation in dictData['alleles']:
-            allele = observation['allele']
-            if 'dbgap_popfreq' not in observation['freq']:
-                freq = "NA"
-            else:
-                freq = observation['freq']['dbgap_popfreq']
+        if 'rsid' in dictData:
+            rsID = dictData['rsid']
+        else:
+            rsID = "NA"
 
-            alleles.append(allele)
-            allelesFreq.append(freq)
-    else:
-        alleles = ["NA", "NA"]
-        allelesFreq = ["NA", "NA"]
-    return alleles, allelesFreq, rsID
+        if 'ref' in dictData:
+            ref = dictData['ref']
+        else:
+            ref = "NA"
+
+        if 'alleles' in dictData:
+            for observation in dictData['alleles']:
+                allele = observation['allele']
+                if 'topmed' not in observation['freq']:
+                    freq = "NA"
+                else:
+                    freq = observation['freq']['topmed']
+
+                if alleles == "":
+                    alleles = f'{allele}'
+                else:
+                    alleles = f'{alleles},{allele}'
+
+                if allelesFreq == "":
+                    allelesFreq = f'{freq}'
+                else:
+                    allelesFreq = f'{allelesFreq},{freq}'
+        else:
+            alleles = "NA"
+            allelesFreq = "NA"
+
+        return alleles, allelesFreq, rsID, ref
 
 
 def caddData(dictData):
@@ -270,7 +284,8 @@ def getConditionName(data):
                 else:
                     name = name + "; " + data[i]['name']
     else:
-        name = data['name']
+        if 'name' in data:
+            name = data['name']
 
     # print(name)
     return name
@@ -363,48 +378,50 @@ def getRCVData(data):
 
     return name, preferredName, omimList, mondoList, medgenList, orphanetList, HPOList
 
+
 def makeSearch(toSearch, variantInfo, fields):
     print("\tQuery")
     notFound = []
-    for data in mv.getvariants(toSearch, fields=fields, returnall = True):
+    for data in mv.getvariants(toSearch, fields=fields, returnall=True):
         if "notfound" in data:
             notFound.append(data['query'])
         else:
             if isinstance(data, dict):
-
-                #DBSNP
-                rs = ""
-                alleles = ["NA", "NA"]
-                freqs = ["NA", "NA"]
-
-                #CADD
-                annotype = ""
-                consdetail = ""
-                consequence = ""
-                consscore = ""
-                geneID = ""
-                geneName = ""
-                polyphen = ""
-                sift = ""
-                phred = ""
-
-                #CLINVAR
-                name = ""
-                preferredName = ""
-                omimList = []
-                mondoList = []
-                medgenList = []
-                orphanetList = []
-                humanPhenotypeOntologyList = []
+                query = data["query"]
 
                 if 'cadd' in data:
-                    annotype, consdetail, consequence, consscore, geneID, geneName, polyphen, sift, phred = caddData(data["cadd"])
+                    annotype, consdetail, consequence, consscore, geneID, geneName, polyphen, sift, phred = caddData(
+                        data["cadd"])
+                else:
+                    annotype = ""
+                    consdetail = ""
+                    consequence = ""
+                    consscore = ""
+                    geneID = ""
+                    geneName = ""
+                    polyphen = ""
+                    sift = ""
+                    phred = ""
 
                 if 'dbsnp' in data:
-                    alleles, freqs, rs = dbsnpData(data["dbsnp"])
+                    alleles, freqs, rs, ref = dbsnpData(data["dbsnp"])
+                else:
+                    rs = "NA"
+                    alleles = "NA"
+                    freqs = "NA"
+                    ref = "NA"
 
                 if 'clinvar' in data:
-                    name, preferredName, omimList, mondoList, medgenList, orphanetList, humanPhenotypeOntologyList = getRCVData(data["clinvar"]["rcv"])
+                    name, preferredName, omimList, mondoList, medgenList, orphanetList, humanPhenotypeOntologyList = getRCVData(
+                        data["clinvar"]["rcv"])
+                else:
+                    name = ""
+                    preferredName = ""
+                    omimList = []
+                    mondoList = []
+                    medgenList = []
+                    orphanetList = []
+                    humanPhenotypeOntologyList = []
 
                 omimOut = getDataToPrint(omimList)
                 mondoOut = getDataToPrint(mondoList)
@@ -417,31 +434,24 @@ def makeSearch(toSearch, variantInfo, fields):
                 consequenceOut = getDataToPrint(consequence)
                 consscoreOut = getDataToPrint(consscore)
 
-                keys = ['rs', 'Allele 1', 'Allele 2', 'Freq(A1)', 'Freq(A2)', 'CADD Phred', 'CADD Annotype',
+                keys = ['rs', 'Alleles', 'Ref', 'Freqs', 'CADD Phred', 'CADD Annotype',
                         'CADD Consequence Detail', 'CADD Consequence', 'CADD Consequence Score', 'CADD Gene ID',
-                        'CADD Gene Name', 'Sift Cathegory', 'Polyphen Cathegory', 'CLINVAR Name', 'CLINVAR Preferred Name',
-                        'CLINVAR Preferred Name', 'OMIM IDs', 'MONDO IDs', 'MEDGEN IDs', 'Orphanet IDs', 'Human Phenotype Ontology']
+                        'CADD Gene Name', 'Sift Cathegory', 'Polyphen Cathegory', 'CLINVAR Name',
+                        'CLINVAR Preferred Name',
+                        'CLINVAR Preferred Name', 'OMIM IDs', 'MONDO IDs', 'MEDGEN IDs', 'Orphanet IDs',
+                        'Human Phenotype Ontology']
 
-                query = data["query"]
                 variantInfo[query] = {}
                 for key in keys:
                     variantInfo[query][key] = ""
 
                 variantInfo[query]['rs'] = rs
-                variantInfo[query]['Allele 1'] = alleles[0]
-                variantInfo[query]['Allele 2'] = alleles[1]
+                variantInfo[query]['Freqs'] = freqs
+                variantInfo[query]['Alleles'] = alleles
+                variantInfo[query]['Ref'] = ref
 
-                if freqs[0] == "" or "NA":
-                    freqs[0] = "-1"
-                variantInfo[query]['Freq(A1)'] = float(freqs[0])
 
-                if freqs[1] == "" or "NA":
-                    freqs[1] = "-1"
-                variantInfo[query]['Freq(A2)'] = float(freqs[1])
-                if phred == "":
-                    phred = "-1"
-                variantInfo[query]['CADD Phred'] = float(phred)
-
+                variantInfo[query]['CADD Phred'] = phred
                 variantInfo[query]['CADD Annotype'] = annotypeOut
                 variantInfo[query]['CADD Consequence Detail'] = consdetailOut
                 variantInfo[query]['CADD Consequence'] = consequenceOut
@@ -464,7 +474,7 @@ def searchSNPs(variantInfo, toSearchDict):
     print("Get annotation")
 
     fields = ['clinvar.rcv.conditions.identifiers', 'clinvar.rcv.conditions.name', 'clinvar.rcv.preferred_name',
-              'dbsnp.alleles', 'dbsnp.rsid', 'cadd.gene.gene_id', 'cadd.gene.genename', 'cadd.annotype',
+              'dbsnp.alleles', 'dbsnp.rsid', 'dbsnp.ref', 'cadd.gene.gene_id', 'cadd.gene.genename', 'cadd.annotype',
               'cadd.consdetail', 'cadd.consequence', 'cadd.consscore', 'cadd.sift.cat', 'cadd.polyphen.cat',
               'cadd.phred']
 
@@ -473,8 +483,8 @@ def searchSNPs(variantInfo, toSearchDict):
 
     notFoundToSearch = {}
     for ID in notFound:
-        A2 = toSearchDict[ID]["A1"]
-        A1 = toSearchDict[ID]["A2"]
+        A2 = toSearchDict[ID]["Allele 1"]
+        A1 = toSearchDict[ID]["Allele 2"]
         prefix = toSearchDict[ID]["prefix"]
 
         notFoundToSearch[f"{prefix}{A1}>{A2}"] = ID
@@ -484,12 +494,25 @@ def searchSNPs(variantInfo, toSearchDict):
 
     return variantInfo
 
-def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
-    toSearch = readVCFs(vcfName, variantInfo)
-    variantInfo = searchSNPs(variantInfo, toSearch)
+def isNotNull(data):
+    if data != "NA" and data != "":
+        return True
+    return False
 
+def getAFs(data):
+    toReturn = []
+    split = data.strip().split(",")
+
+    for AF in split:
+        if AF == "NA" or AF == "":
+            return split, False
+        else:
+            toReturn.append(float(AF))
+    return toReturn, True
+
+def saveSearch(fileOutName):
     header = True
-    fileReference = open(f"{folderAnot}/{name}_AnnotTable.tsv", "w")
+    fileReference = open(fileOutName, "w")
     for query in variantInfo:
         if header:
             fileReference.write("Query")
@@ -502,12 +525,55 @@ def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
             fileReference.write(f"\t{variantInfo[query][field]}")
         fileReference.write("\n")
 
+def openCorrespondenceFile(fileInput):
+    fileCorrespondence = open(fileInput)
+    dictCorrespondence = {}
+    for line in fileCorrespondence:
+        split = line.strip().split("\t")
+        dictCorrespondence[split[0]] = split[1]
+    return dictCorrespondence
+
+def createAnnotationTables(line, correspondence, dictCorrespondence, folderAnot):
+    headerIDsTemp = line.strip().split()
+    headerIDs = []
+
+    dictOut = {}
+
+    for i in range(len(headerIDsTemp)):
+        IDTemp = headerIDsTemp[i]
+        if i < 9:
+            headerIDs.append(IDTemp)
+        else:
+            #Change to correspondence list if exists
+            if correspondence != "":
+                if IDTemp in dictCorrespondence:
+                    ID = dictCorrespondence[IDTemp]
+                else:
+                    ID = f"NoCorrespondence_{IDTemp}"
+            else:
+                ID = IDTemp
+
+            #Create a unique file to each ID, even if the name is the same
+            if ID not in dictOut:
+                dictOut[ID] = open(f"{folderAnot}/Annot_{ID}.tsv", 'w')
+                headerIDs.append(ID)
+            else:
+                count = 1
+                while f"{ID}_{count}" in headerIDs:
+                    count = count + 1
+
+                headerIDs.append(f"{ID}_{count}")
+                dictOut[f"{ID}_{count}"] = open(f"{folderAnot}/Annot_{ID}_{count}.tsv", 'w')
+
+    return dictOut, headerIDs
+
+def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
+    toSearch = readVCFs(vcfName, variantInfo)
+    variantInfo = searchSNPs(variantInfo, toSearch)
+    saveSearch(f"{folderAnot}/{name}_AnnotTable.tsv")
+
     if correspondence != "":
-        fileCorrespondence = open(correspondence)
-        dictCorrespondence = {}
-        for line in fileCorrespondence:
-            split = line.strip().split()
-            dictCorrespondence[split[0]] = split[1]
+        dictCorrespondence = openCorrespondenceFile(correspondence)
 
     print(f"Open VCF file again({vcfName}) ")
 
@@ -516,34 +582,14 @@ def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
     else:
         file = open(vcfName)
 
+    headerOnOutput = False
     header = True
-    headerPrinted = False
-    dictOut = {}
     for line in file:
         if vcfName[-2:] == ".gz":
             line = line.decode("utf-8")
-
         if header:
             if "#CHROM" in line:
-                headerIDsTemp = line.strip().split()
-                headerIDs = []
-
-                for i in range(len(headerIDsTemp)):
-                    if i < 9:
-                        headerIDs.append(ID)
-                    else:
-                        ID = headerIDsTemp[i]
-                        if ID not in dictOut:
-                            dictOut[ID] = open(f"{folderAnot}/Annot_{ID}.tsv", 'w')
-                            headerIDs.append(ID)
-                        else:
-                            count = 1
-                            while f"{ID}_{count}" in headerIDs:
-                                count = count + 1
-
-                            headerIDs.append(f"{ID}_{count}")
-                            dictOut[f"{ID}_{count}"] = open(f"{folderAnot}/Annot_{ID}_{count}.tsv", 'w')
-
+                dictOut, headerIDs = createAnnotationTables(line, correspondence, dictCorrespondence, folderAnot)
                 header = False
         else:
             split = line.strip().split()
@@ -564,25 +610,44 @@ def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
                     query = "notFound"
 
             if query != "notFound":
+                if not headerOnOutput:
+                    headerOnOutput = True
+                    for ind in dictOut:
+                        dictOut[ind].write("Query\tGenotype")
+                        for item in variantInfo[query]:
+                            dictOut[ind].write(f"\t{item}")
+                        dictOut[ind].write("\n")
 
-                if variantInfo[query]['Freq(A1)'] < variantInfo[query]['Freq(A2)']:
-                    maf = variantInfo[query]['Freq(A1)']
-                else:
-                    maf = variantInfo[query]['Freq(A2)']
 
-                if variantInfo[query]['CADD Phred'] > 15 and maf < 0.05:
-                    for i in range(9, len(split)):
-                        ID = headerIDs[i]
-                        if correspondence != "":
-                            ID = dictCorrespondence[ID]
+                #Select CADD Phred if it is valid
+                validPhred = False
+                if isNotNull(variantInfo[query]['CADD Phred']):
+                    phred = float(variantInfo[query]['CADD Phred'])
+                    validPhred = True
 
-                        information = split[i].split(":")
-                        if "1" in information[0]:
-                            information[0].replace("0", A0).replace("1", A1)
-                            dictOut.write(f"{query}\t{information[0]}")
-                            for item in variantInfo[query]:
-                                dictOut.write(f"\t{variantInfo[query][item]}")
-                            dictOut.write(f"\n")
+                # Select MAF if it is valid (2nd higher AF)
+                AFList, validAF = getAFs(variantInfo[query]['Freqs'])
+
+                if validAF:
+                    if len(AFList) == 1:
+                        validAF = False
+                    if len(AFList) == 2:
+                        maf = min(AFList)
+                    if len(AFList) > 2:
+                        sortedAF = np.sort(AFList)
+                        maf = sortedAF[-2]
+
+                if validPhred and validAF:
+                    if variantInfo[query]['CADD Phred'] > 15 and maf < 0.05:
+                        for i in range(9, len(split)):
+                            ID = headerIDs[i]
+                            information = split[i].split(":")
+                            if "1" in information[0]:
+                                information[0].replace("0", A0).replace("1", A1)
+                                dictOut[ID].write(f"{query}\t{information[0]}")
+                                for item in variantInfo[query]:
+                                    dictOut[ID].write(f"\t{variantInfo[query][item]}")
+                                dictOut[ID].write(f"\n")
     for ID in dictOut:
         dictOut[ID].close()
 
@@ -620,11 +685,11 @@ if __name__ == '__main__':
                           required=False, default="")
     args = parser.parse_args()
 
-
+    log = open(f"{args.outputFolder}_Commands.txt", "w")
 
     folder = createFolder(args.outputFolder)
     folderGTC = createFolder(folder+"/GTC/")
-    #generateGTC(args.iaap, args.bpm, args.egt, args.folder, folderGTC, args.threads)
+    generateGTC(args.iaap, args.bpm, args.egt, args.folder, folderGTC, args.threads)
     #generatePED(args.iaap, args.bpm, args.egt, args.folder, folderGTC, args.threads)
 
     allGTCFolder = createFolder(folder+"/GTCAll/")
@@ -642,5 +707,4 @@ if __name__ == '__main__':
         variantInfo = readPreviousSearchFile(args.previousSearch)
 
     variantInfo = openVCFAndSearch(VCFFinal, variantInfo, anotFolder, args.outputName, args.correspondenceList)
-
-
+    log.close()
