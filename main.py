@@ -29,16 +29,14 @@ def gtc2VCF(bcftools, bpm, egt, csv, folderGTC, allGTCFolder, genomeReference, v
            f"--use-gtc-sample-names --adjust-clusters"
     execute(line)
 
-    line = f"{bcftools} sort -Oz -o {vcfFolder}/{outputName}_Sort.vcf.gz {vcfFolder}/{outputName}.vcf.gz"
+    line = f"{bcftools} sort -Oz -o {vcfFolder}/{outputName}_Sort.vcf.gz {vcfFolder}/{outputName}.vcf.gz --threads {threads}"
     execute(line)
 
-    line = f"{bcftools} norm -Oz -c x -f {genomeReference} -o {vcfFolder}/{outputName}_Norm.vcf.gz {vcfFolder}/{outputName}_Sort.vcf.gz"
+    line = f"{bcftools} norm -Oz -c x -f {genomeReference} --threads {threads}" \
+           f" -o {vcfFolder}/{outputName}_Norm.vcf.gz {vcfFolder}/{outputName}_Sort.vcf.gz"
     execute(line)
 
-    line = f"{bcftools} index {vcfFolder}/{outputName}_Norm.vcf.gz"
-    execute(line)
-
-    line = f"{bcftools} index {vcfFolder}/{outputName}_Norm.vcf.gz"
+    line = f"{bcftools} index {vcfFolder}/{outputName}_Norm.vcf.gz --threads {threads}"
     execute(line)
 
     return f"{vcfFolder}/{outputName}_Norm.vcf.gz"
@@ -91,7 +89,7 @@ def basicVCFQC(VCF, parametersQC, bcftools, vcfFolder, vcfName):
     line = f'{line}\" -Oz -o {vcfFolder}/{vcfName}_QC.vcf.gz {VCF}'
     execute(line)
 
-    return f"{vcfFolder}/{vcfName}_QC.tar.gz"
+    return f"{vcfFolder}/{vcfName}_QC.vcf.gz"
 
 
 def basicGenotypingQC(VCF, folder, name, plink2):
