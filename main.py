@@ -578,6 +578,7 @@ def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
     variantInfo = searchSNPs(variantInfo, toSearch)
     saveSearch(f"{folderAnot}/{name}_AnnotTable.tsv")
 
+    dictCorrespondence = {}
     if correspondence != "":
         dictCorrespondence = openCorrespondenceFile(correspondence)
 
@@ -602,16 +603,16 @@ def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
             prefix = f"chr{split[0]}:g.{split[1]}"
             key = f"{prefix}{split[3]}>{split[4]}"
 
+            A0 = split[3]
+            A1 = split[4]
             if key in variantInfo:
                 query = key
-                A0 = split[3]
-                A1 = split[4]
+                turn = False
             else:
                 key = f"{prefix}{split[4]}>{split[3]}"
                 if key in variantInfo:
                     query = key
-                    A0 = split[4]
-                    A1 = split[3]
+                    turn = True
                 else:
                     query = "notFound"
 
@@ -619,7 +620,7 @@ def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
                 if not headerOnOutput:
                     headerOnOutput = True
                     for ind in dictOut:
-                        dictOut[ind].write("Query\tGenotype")
+                        dictOut[ind].write("Query\tID on VCF\tGenotype")
                         for item in variantInfo[query]:
                             dictOut[ind].write(f"\t{item}")
                         dictOut[ind].write("\n")
@@ -647,16 +648,23 @@ def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
                     if variantInfo[query]['CADD Phred'] > 15 and maf < 0.05:
                         for i in range(9, len(split)):
                             ID = headerIDs[i]
+                            IDVCF = split[2]
                             information = split[i].split(":")
-                            if "1" in information[0]:
-                                information[0].replace("0", A0).replace("1", A1)
-                                dictOut[ID].write(f"{query}\t{information[0]}")
-                                for item in variantInfo[query]:
-                                    dictOut[ID].write(f"\t{variantInfo[query][item]}")
-                                dictOut[ID].write(f"\n")
+                            if not turn:
+                                if "1" in information[0]:
+                                    information[0] = information[0].replace("0", A0).replace("1", A1)
+                                    dictOut[ID].write(f"{query}\t{IDVCF}\t{information[0]}")
+                                    for item in variantInfo[query]:
+                                        dictOut[ID].write(f"\t{variantInfo[query][item]}")
+                                    dictOut[ID].write(f"\n")
+                            else:
+                                if "0" in information[0]:
+                                    information[0] = information[0].replace("1", A1).replace("0", A0)
+                                    dictOut[ID].write(f"{query}\t{IDVCF}\t{information[0]}")
+                                    for item in variantInfo[query]:
+                                        dictOut[ID].write(f"\t{variantInfo[query][item]}")
     for ID in dictOut:
         dictOut[ID].close()
-
 
 
 
