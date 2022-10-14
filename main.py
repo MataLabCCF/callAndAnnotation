@@ -691,8 +691,10 @@ if __name__ == '__main__':
                           required=False, default="")
     args = parser.parse_args()
 
+    folder = args.outputFolder
+    os.system(f"mkdir {folder}")
     logFile = open(f"{args.outputFolder}/{args.outputName}.log", 'w')
-    folder = createFolder(args.outputFolder, logFile)
+    #folder = createFolder(args.outputFolder, logFile)
 
 
 
