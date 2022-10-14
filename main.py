@@ -1,6 +1,7 @@
 import myvariant
 import argparse
 import gzip
+import time
 import os
 import numpy as np
 
@@ -8,45 +9,51 @@ import numpy as np
 mv = myvariant.MyVariantInfo()
 
 #=========================================================== Utils ====================================================
-def createFolder(folderName):
+def createFolder(folderName, logFile):
     line = f"mkdir {folderName}"
-    execute(line)
+    execute(line, logFile)
 
     return folderName
 
-def execute(commandLine):
+def execute(commandLine, logFile):
+    start = time.time()
     print(commandLine)
     os.system(commandLine)
+    end = time.time()
+    diff = end-start
+
+    logFile.write(f'{commandLine}\nTime: {diff} seconds\n\n')
+
 
 #=========================================================== QC ====================================================
-def gtc2VCF(bcftools, bpm, egt, csv, folderGTC, allGTCFolder, genomeReference, vcfFolder, threads, outputName):
+def gtc2VCF(bcftools, bpm, egt, csv, folderGTC, allGTCFolder, genomeReference, vcfFolder, threads, outputName, logFile):
     for folder in os.listdir(folderGTC):
         line = f"cp {folderGTC}/{folder}/* {allGTCFolder}"
-        execute(line)
+        execute(line, logFile)
 
     line = f"{bcftools} +gtc2vcf --no-version -Oz --bpm {bpm} --egt {egt} --csv {csv} --gtcs {allGTCFolder} " \
            f"--fasta-ref {genomeReference} --output {vcfFolder}/{outputName}.vcf.gz --threads {threads} " \
            f"--use-gtc-sample-names --adjust-clusters"
-    execute(line)
+    execute(line, logFile)
 
-    line = f"{bcftools} sort -Oz -o {vcfFolder}/{outputName}_Sort.vcf.gz {vcfFolder}/{outputName}.vcf.gz --threads {threads}"
-    execute(line)
+    line = f"{bcftools} sort -Oz -o {vcfFolder}/{outputName}_Sort.vcf.gz {vcfFolder}/{outputName}.vcf.gz"
+    execute(line, logFile)
 
     line = f"{bcftools} norm -Oz -c x -f {genomeReference} --threads {threads}" \
            f" -o {vcfFolder}/{outputName}_Norm.vcf.gz {vcfFolder}/{outputName}_Sort.vcf.gz"
-    execute(line)
+    execute(line, logFile)
 
     line = f"{bcftools} index {vcfFolder}/{outputName}_Norm.vcf.gz --threads {threads}"
-    execute(line)
+    execute(line, logFile)
 
     return f"{vcfFolder}/{outputName}_Norm.vcf.gz"
 
-def generateGTC(iaap, bpm, egt, folder, outFolder, threads):
+def generateGTC(iaap, bpm, egt, folder, outFolder, threads, logFile):
     threadsTest = 4
 
     line = f"{iaap} gencall {bpm} {egt} -f {folder} --output-gtc {outFolder} --gender-estimate-call-rate-threshold " \
            f"-0.1 -t {threadsTest}"
-    execute(line)
+    execute(line, logFile)
 
 #def generatePED(iaap, bpm, egt, folder, outFolder, threads):
 #    threadsTest = 4
@@ -74,7 +81,7 @@ def readFileQC(qcFile):
     return dictQC
 
 
-def basicVCFQC(VCF, parametersQC, bcftools, vcfFolder, vcfName):
+def basicVCFQC(VCF, parametersQC, bcftools, vcfFolder, vcfName, logFile):
     line = f'{bcftools}  view -i \"'
 
     first = True
@@ -87,26 +94,26 @@ def basicVCFQC(VCF, parametersQC, bcftools, vcfFolder, vcfName):
             line = f'{line} && INFO/{parameter}{parametersQC[parameter]}'
 
     line = f'{line}\" -Oz -o {vcfFolder}/{vcfName}_QC.vcf.gz {VCF}'
-    execute(line)
+    execute(line, logFile)
 
     return f"{vcfFolder}/{vcfName}_QC.vcf.gz"
 
 
-def basicGenotypingQC(VCF, folder, name, plink2):
+def basicGenotypingQC(VCF, folder, name, plink2, logFile):
     folderPGEN = f"{folder}/PGEN"
-    execute(f"mkdir {folderPGEN}")
+    execute(f"mkdir {folderPGEN}", logFile)
 
     #Convert
-    execute(f"{plink2} --vcf {VCF} --make-pfile --out {folderPGEN}/{name}")
+    execute(f"{plink2} --vcf {VCF} --make-pfile --out {folderPGEN}/{name}", logFile)
 
     #Remove missing
-    execute(f"{plink2} --pfile {folderPGEN}/{name} --geno 0.05 --mind 0.05 --make-pgen --out {folderPGEN}/{name}_missing")
+    execute(f"{plink2} --pfile {folderPGEN}/{name} --geno 0.05 --mind 0.05 --make-pgen --out {folderPGEN}/{name}_missing", logFile)
 
     #Remove big deviation on HWE
-    execute(f"{plink2} --pfile {folderPGEN}/{name}_missing --hwe 1e-10 --make-pgen --out {folderPGEN}/{name}_HWE")
+    execute(f"{plink2} --pfile {folderPGEN}/{name}_missing --hwe 1e-10 --make-pgen --out {folderPGEN}/{name}_HWE", logFile)
 
     #PGEN to VCF
-    execute(f"{plink2} --pfile {folderPGEN}/{name}_HWE --recode vcf-iid --out {folderPGEN}/{name}_QC")
+    execute(f"{plink2} --pfile {folderPGEN}/{name}_HWE --recode vcf-iid --out {folderPGEN}/{name}_QC", logFile)
     return f"{folderPGEN}/{name}_QC.vcf"
 
 #=========================================================== Anotation ====================================================
@@ -684,24 +691,36 @@ if __name__ == '__main__':
                           required=False, default="")
     args = parser.parse_args()
 
-    folder = createFolder(args.outputFolder)
+    logFile = open(f"{args.outputFolder}/{args.outputName}.log", 'w')
+    folder = createFolder(args.outputFolder, logFile)
 
-    folderGTC = createFolder(folder+"/GTC/")
-    generateGTC(args.iaap, args.bpm, args.egt, args.folder, folderGTC, args.threads)
+
+
+    folderGTC = createFolder(folder+"/GTC/", logFile)
+    generateGTC(args.iaap, args.bpm, args.egt, args.folder, folderGTC, args.threads, logFile)
     #generatePED(args.iaap, args.bpm, args.egt, args.folder, folderGTC, args.threads)
 
-    allGTCFolder = createFolder(folder+"/GTCAll/")
-    vcfFolder = createFolder(folder+"/VCFs/")
-    VCF = gtc2VCF(args.bcftools, args.bpm, args.egt, args.csv, folderGTC, allGTCFolder, args.genomeReference, vcfFolder, args.threads, args.outputName)
+    allGTCFolder = createFolder(folder+"/GTCAll/", logFile)
+    vcfFolder = createFolder(folder+"/VCFs/", logFile)
+    VCF = gtc2VCF(args.bcftools, args.bpm, args.egt, args.csv, folderGTC, allGTCFolder, args.genomeReference, vcfFolder, args.threads, args.outputName, logFile)
     parametersQC = readFileQC(args.qc)
 
-    VCFQC = basicVCFQC(VCF, parametersQC, args.bcftools, vcfFolder, args.outputName)
+    VCFQC = basicVCFQC(VCF, parametersQC, args.bcftools, vcfFolder, args.outputName, logFile)
 
-    VCFFinal = basicGenotypingQC(VCFQC, folder, args.outputName, args.plink2)
+    VCFFinal = basicGenotypingQC(VCFQC, folder, args.outputName, args.plink2, logFile)
 
-    anotFolder = createFolder(folder + "/Anot/")
+    anotFolder = createFolder(folder + "/Anot/", logFile)
+
+    start = time.time()
+
     variantInfo = {}
     if args.previousSearch != "":
         variantInfo = readPreviousSearchFile(args.previousSearch)
 
     variantInfo = openVCFAndSearch(VCFFinal, variantInfo, anotFolder, args.outputName, args.correspondenceList)
+
+    end = time.time()
+    diff = end - start
+
+    logFile.write(f'Annotation using MyVariants\nTime: {diff} seconds\n\n')
+    logFile.close()
