@@ -251,8 +251,8 @@ def caddData(dictData):
             geneName = dictData['gene'][0]['genename']
 
             for i in range(1, len(dictData['gene'])):
-                geneID = geneID + "; " + dictData['gene'][i]['gene_id']
-                geneName = geneName + "; " + dictData['gene'][i]['genename']
+                geneID = f"{geneID}; {dictData['gene'][i]['gene_id']}"
+                geneName = f"{geneName}; {dictData['gene'][i]['genename']}"
         else:
             geneID = dictData['gene']['gene_id']
             geneName = dictData['gene']['genename']
@@ -262,9 +262,9 @@ def caddData(dictData):
 
     if 'polyphen' in dictData:
         if isinstance(dictData['polyphen'], list):
-            sift = dictData['polyphen'][0]['cat']
+            polyphen = dictData['polyphen'][0]['cat']
             for i in range(len(dictData['polyphen'])):
-                sift = sift + "; " + dictData['polyphen'][i]['cat']
+                polyphen = f"{polyphen}; {dictData['polyphen'][i]['cat']}"
         else:
             polyphen = dictData['polyphen']['cat']
 
@@ -272,7 +272,7 @@ def caddData(dictData):
         if isinstance(dictData['sift'], list):
             sift = dictData['sift'][0]['cat']
             for i in range(len(dictData['sift'])):
-                sift = sift + "; " + dictData['sift'][i]['cat']
+                sift = f"{sift}; {dictData['sift'][i]['cat']}"
         else:
             sift = dictData['sift']['cat']
 
@@ -288,7 +288,7 @@ def getConditionName(data):
                 if name == "":
                     name = data[i]['name']
                 else:
-                    name = name + "; " + data[i]['name']
+                    name = f"{name}; {data[i]['name']}"
     else:
         if 'name' in data:
             name = data['name']
@@ -361,13 +361,13 @@ def getRCVData(data):
             if name == "":
                 name = returnedName
             else:
-                name = name + "; " + returnedName
+                name = f"{name}; {returnedName}"
 
             if 'preferred_name' in data[i]:
                 if preferredName == "":
                     preferredName = data[i]['preferred_name']
                 else:
-                    preferredName = preferredName + "; " + data[i]['preferred_name']
+                    preferredName = f"{preferredName}; {data[i]['preferred_name']}"
 
     else:
         name = getConditionName(data['conditions'])
@@ -535,8 +535,9 @@ def openCorrespondenceFile(fileInput):
     fileCorrespondence = open(fileInput)
     dictCorrespondence = {}
     for line in fileCorrespondence:
-        split = line.strip().split("\t")
-        dictCorrespondence[split[0]] = split[1]
+        if line.strip() != "":
+            split = line.strip().split("\t")
+            dictCorrespondence[split[0]] = split[1]
     return dictCorrespondence
 
 def createAnnotationTables(line, correspondence, dictCorrespondence, folderAnot):
@@ -665,10 +666,6 @@ def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
                                         dictOut[ID].write(f"\t{variantInfo[query][item]}")
     for ID in dictOut:
         dictOut[ID].close()
-
-
-
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='From Illumina to annotation')
