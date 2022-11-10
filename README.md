@@ -66,7 +66,7 @@ Optional arguments:
 
 Example of command line:
  ```
- python3.8 main2.py -o /home/peixott/beegfs/Analysis/Illumina/TestPipeline2/ \
+ python3.8 main.py -o /home/peixott/beegfs/Analysis/Illumina/TestPipeline2/ \
 -b /home/peixott/beegfs/Analysis/Illumina/GDA/Part1_480Samples/ReferenceFiles/NeuroBooster_20042459_A1.bpm \
 -c /home/peixott/beegfs/Analysis/Illumina/GDA/NeuroBooster_20042459_A1.csv \
 -e /home/peixott/beegfs/Analysis/Illumina/GDA/Part1_480Samples/ReferenceFiles/iMata_GDANeuroBooster_All_07122021.egt \
