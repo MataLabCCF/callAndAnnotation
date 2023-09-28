@@ -1,0 +1,4 @@
+IlluminaID_ExternalID_B1.txt	SampleID_SentrixBarcode_SentrixPosition_B1.txt	/home/peixott/B1/rawData/B1	B1
+IlluminaID_ExternalID_B2.txt	SampleID_SentrixBarcode_SentrixPosition_B2.txt	/home/peixott/B2/rawData/B2	B2
+IlluminaID_ExternalID_B3.txt	SampleID_SentrixBarcode_SentrixPosition_B3.txt	/home/peixott/B3/rawData/B3	B3
+IlluminaID_ExternalID_B4.txt	SampleID_SentrixBarcode_SentrixPosition_B4.txt	/home/peixott/B4/rawData/B4	B4
