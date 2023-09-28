@@ -2,8 +2,13 @@ import myvariant
 import argparse
 import gzip
 import time
+import sys
 import os
+import re
+import csv
 import numpy as np
+from xlsxwriter.workbook import Workbook
+
 
 
 mv = myvariant.MyVariantInfo()
@@ -15,10 +20,12 @@ def createFolder(folderName, logFile):
 
     return folderName
 
-def execute(commandLine, logFile):
+def execute(commandLine, logFile, execute = True):
     start = time.time()
     print(commandLine)
-    os.system(commandLine)
+
+    if execute:
+        os.system(commandLine)
     end = time.time()
     diff = end-start
 
@@ -27,8 +34,8 @@ def execute(commandLine, logFile):
 
 #=========================================================== QC ====================================================
 def gtc2VCF(bcftools, bpm, egt, csv, folderGTC, allGTCFolder, genomeReference, vcfFolder, threads, outputName, logFile):
-    for folder in os.listdir(folderGTC):
-        line = f"cp {folderGTC}/{folder}/* {allGTCFolder}"
+    for file in os.listdir(folderGTC):
+        line = f"cp {folderGTC}/{file} {allGTCFolder}"
         execute(line, logFile)
 
     line = f"{bcftools} +gtc2vcf --no-version -Oz --bpm {bpm} --egt {egt} --csv {csv} --gtcs {allGTCFolder} " \
@@ -48,10 +55,86 @@ def gtc2VCF(bcftools, bpm, egt, csv, folderGTC, allGTCFolder, genomeReference, v
 
     return f"{vcfFolder}/{outputName}_Norm.vcf.gz"
 
-def generateGTC(iaap, bpm, egt, folder, outFolder, threads, logFile):
+def generateGTC(iaap, bpm, egt, folder, outFolder, outputName, batchList, threads, logFile):
     threadsTest = 4
 
-    line = f"{iaap} gencall {bpm} {egt} -f {folder} --output-gtc {outFolder} --gender-estimate-call-rate-threshold " \
+    inputFile = open(batchList)
+    print(f"Creating the file {folder}/{outputName}_SampleSheet.csv")
+    outputFile = open(f"{folder}/{outputName}_SampleSheet.csv", 'w')
+    outputFile.write("[Data]\n")
+    outputFile.write("Sample_ID,SentrixBarcode_A,SentrixPosition_A,Path\n")
+
+    dictBatch = {}
+    listID = []
+
+    for line in inputFile:
+        illuminaCode2External, sampleID2Sentrix, path, ID = line.strip().split()
+
+        dictCodes = {}
+
+        fileCodes = open(illuminaCode2External)
+        header = True
+        for line in fileCodes:
+            if header:
+                if "IlluminaID" in line:
+                    header = False
+            else:
+                illuminaID, externalID = line.strip().replace(" ", "_").split()
+
+                if externalID == "#N/A":
+                    externalID = "NonLARGE"
+
+                if externalID not in listID:
+                    listID.append(externalID)
+                else:
+                    count = 1
+                    baseID = externalID
+                    externalID = f"{baseID}_{count}"
+
+                    while externalID in listID:
+                        count = count + 1
+                        externalID = f"{baseID}_{count}"
+
+                    listID.append(externalID)
+
+
+                if illuminaID not in dictCodes:
+                    dictCodes[illuminaID] = {}
+                    dictCodes[illuminaID]["ExternalID"] = externalID
+                    dictCodes[illuminaID]["Batch"] = ID
+        fileCodes.close()
+
+        fileSentrix = open(sampleID2Sentrix)
+        header = True
+        for line in fileSentrix:
+            if header:
+                if "Sample_ID" in line:
+                    header = False
+            else:
+                illuminaID, sentrixBarcode, sentrixPosition = line.strip().split(",")[0:3]
+                if illuminaID in dictCodes:
+                    dictCodes[illuminaID]['sentrixBarcode'] = sentrixBarcode
+                    dictCodes[illuminaID]['sentrixPosition'] = sentrixPosition
+                else:
+                    input(f"Error: the ID {illuminaID} was not in external code")
+
+        for illuminaID in dictCodes:
+            sentrixBarcode = dictCodes[illuminaID]['sentrixBarcode']
+            sentrixPosition = dictCodes[illuminaID]['sentrixPosition']
+            IDIllumina, number = illuminaID.split("-")
+            pathToLook = path + "/" + sentrixBarcode
+            externalID = dictCodes[illuminaID]["ExternalID"] + "_" + dictCodes[illuminaID]["Batch"]
+
+            if os.path.exists(pathToLook):
+                outputFile.write(f"{externalID},{sentrixBarcode},{sentrixPosition},{pathToLook}\n")
+            else:
+                input(f"Not found: {pathToLook}")
+
+        fileSentrix.close()
+
+    outputFile.close()
+
+    line = f"{iaap} gencall {bpm} {egt} -s {folder}/{outputName}_SampleSheet.csv --output-gtc {outFolder} --gender-estimate-call-rate-threshold " \
            f"-0.1 -t {threadsTest}"
     execute(line, logFile)
 
@@ -80,6 +163,75 @@ def readFileQC(qcFile):
 
     return dictQC
 
+def getInfo(line):
+    infoDict = {}
+    split = line.strip().split()[7].split(";")
+    for fieldVCF in split:
+        if "=" in fieldVCF:
+            field,value = fieldVCF.split("=")
+            infoDict[field]=value
+    return infoDict
+
+def wasAccepted(value, parameter):
+    split = parameter.split(" ")
+    cutoff = float(split[-1])
+
+    if ">=" in parameter:
+        if value >= cutoff:
+            return "ok"
+        return "fail"
+    elif "<=" in parameter:
+        if value <= cutoff:
+            return "ok"
+        return "fail"
+    elif ">" in parameter:
+        if value > cutoff:
+            return "ok"
+        return "fail"
+    elif "<" in parameter:
+        if value < cutoff:
+            return "ok"
+        return "fail"
+    else:
+        sys.exit(f"Unknown parameter: {parameter}")
+
+
+def basicVCFQCToIncludeAsInfo(VCF, parametersQC, outFolder):
+
+    dictInfo= {}
+    if ".gz" in VCF:
+        file = gzip.open(VCF)
+    else:
+        file = open(VCF)
+
+    header = True
+    for line in file:
+        if ".gz" in VCF:
+            line = line.decode("utf-8")
+
+        if header:
+            if "#CHROM" in line:
+                header = False
+        else:
+            infoDict = getInfo(line)
+            ID = line.strip().split()[2]
+
+            failQC = ""
+
+            for field in parametersQC:
+                if field in infoDict:
+                    if wasAccepted(float(infoDict[field]),parametersQC[field]) == "fail":
+                        if failQC == "":
+                            failQC = field
+                        else:
+                            failQC = f"{failQC}, {field}"
+
+            if failQC == "":
+                dictInfo[ID] = "PASS"
+            else:
+                dictInfo[ID] = failQC
+
+    return dictInfo
 
 def basicVCFQC(VCF, parametersQC, bcftools, vcfFolder, vcfName, logFile):
     line = f'{bcftools}  view -i \"'
@@ -179,6 +331,7 @@ def readVCFs(vcfName, variantInfo):
         else:
             split = line.strip().split()
             prefix = f"chr{split[0]}:g.{split[1]}"
+
             key = f"{prefix}{split[3]}>{split[4]}"
             if key not in variantInfo:
                 if key not in searches:
@@ -384,21 +537,113 @@ def getRCVData(data):
 
     return name, preferredName, omimList, mondoList, medgenList, orphanetList, HPOList
 
+def fixAlleles(original, new):
+    dataOriginal = re.split(r'(\d+)', original)
+    dataNew = re.split(r'(\d+)', new)
+
+    newId = ""
+    for i in range(0, len(dataNew)-1):
+        newId = newId+dataNew[i]
+
+    newId = newId+dataOriginal[-1]
+    return newId
+
+
+
+def getIDsNonHG38(listVar):
+    print(f"\tConverting HG38 to HG19")
+
+    listVarHg19 = []
+    print(f"We will try to convert {len(listVar)} variants")
+
+    for var in listVar:
+        # preparation to future
+        dbSNP = ""
+        info = re.split(r'(\d+)', var)
+        alleles = info[-1].split(">")
+        flag = 0
+
+
+
+        search = mv.getvariant(var, fields="dbsnp.rsid", assembly="hg38", returnall=True)
+        #print(search)
+        if search and ('dbsnp' in search):
+            dbSNP = search['dbsnp']['rsid']
+        else:
+            newVar = ""
+            for i in range(len(info) - 1):
+                newVar = newVar + info[i]
+            newVar = newVar + f"{alleles[1]}>{alleles[0]}"
+            search = mv.getvariant(newVar, fields="dbsnp.rsid", assembly="hg38", returnall=True)
+            if search:
+                dbSNP = search['dbsnp']['rsid']
+            else:
+                print(f"\tWe could not find {var} or {newVar}")
+
+        if dbSNP:
+            search = mv.getvariant(dbSNP, returnall=True)
+            if isinstance(search, list):
+                for answer in search:
+                    allelesAnswer = re.split(r'(\d+)', answer['_id'])[-1].split(">")
+                    if (allelesAnswer[0] == alleles[0] and allelesAnswer[1] == alleles[1]) or (
+                            allelesAnswer[0] == alleles[1] and allelesAnswer[1] == alleles[0]):
+                        listVarHg19.append(answer['_id'])
+                        flag = 1
+            else:
+                allelesAnswer = re.split(r'(\d+)', search['_id'])[-1].split(">")
+                if (allelesAnswer[0] == alleles[0] and allelesAnswer[1] == alleles[1]) or (
+                        allelesAnswer[0] == alleles[1] and allelesAnswer[1] == alleles[0]):
+                    listVarHg19.append(search['_id'])
+                    flag = 1
+        if flag != 1:
+            print(f"\t\tUnable to convert {var}")
+
+    print(f"We got {len(listVarHg19)} variants")
+    return listVarHg19
 
 def makeSearch(toSearch, variantInfo, fields):
-    print("\tQuery")
+    print("Query")
+    isHg38 = False
+
     notFound = []
-    for data in mv.getvariants(toSearch, fields=fields, returnall=True):
-        if "notfound" in data:
-            notFound.append(data['query'])
-        else:
+
+    if isHg38:
+        #I will not use because some variants are with hg19 after calling with hg38 bpm and norm with hg38
+        notFound, toSearch19, dict19To38 = getIDsNonHG38(toSearch)
+    else:
+        toSearch19 = toSearch
+
+    print(f"\tSearching {len(toSearch19)}")
+    for var in toSearch19:
+
+        #print(f"Looking for {var}")
+
+        found = True
+        data = mv.getvariant(var, fields=fields, returnall=True)
+
+        if not data:
+            info = re.split(r'(\d+)', var)
+            alleles = info[-1].split(">")
+            newVar = ""
+            for i in range(len(info) - 1):
+                newVar = newVar + info[i]
+            newVar = newVar + f"{alleles[1]}>{alleles[0]}"
+
+            data = mv.getvariant(newVar, fields=fields, returnall=True)
+            if not data:
+                print(f"Unable to find {var} or {newVar}")
+                found = False
+        if found:
+            #print(type(data))
             if isinstance(data, dict):
-                query = data["query"]
+                query = data["_id"]
 
                 if 'cadd' in data:
+                    #print(f"\tWe have cadd for {query} -> {data['cadd']}")
                     annotype, consdetail, consequence, consscore, geneID, geneName, polyphen, sift, phred = caddData(
                         data["cadd"])
                 else:
+                    print(f"\tWe do not have cadd for {query}")
                     annotype = ""
                     consdetail = ""
                     consequence = ""
@@ -420,9 +665,19 @@ def makeSearch(toSearch, variantInfo, fields):
                 if 'clinvar' in data:
                     name, preferredName, omimList, mondoList, medgenList, orphanetList, humanPhenotypeOntologyList = getRCVData(
                         data["clinvar"]["rcv"])
+                    if 'hg19' in data["clinvar"]:
+                        posHG19 = data["clinvar"]['hg19']["start"]
+                    if 'hg38' in data["clinvar"]:
+                        posHG38 = data["clinvar"]['hg38']["start"]
+                    if 'chrom' in data['clinvar']:
+                        chrom = data['clinvar']['chrom']
+
                 else:
                     name = ""
                     preferredName = ""
+                    posHG19 = ""
+                    posHG38 = ""
+                    chrom = ""
                     omimList = []
                     mondoList = []
                     medgenList = []
@@ -440,12 +695,11 @@ def makeSearch(toSearch, variantInfo, fields):
                 consequenceOut = getDataToPrint(consequence)
                 consscoreOut = getDataToPrint(consscore)
 
-                keys = ['rs', 'Alleles', 'Ref', 'Freqs', 'CADD Phred', 'CADD Annotype',
+                keys = ['rs', 'Alleles', 'Ref', 'Chrom' ,'Pos hg19','Pos hg38', 'Freqs', 'CADD Phred', 'CADD Annotype',
                         'CADD Consequence Detail', 'CADD Consequence', 'CADD Consequence Score', 'CADD Gene ID',
                         'CADD Gene Name', 'Sift Cathegory', 'Polyphen Cathegory', 'CLINVAR Name',
-                        'CLINVAR Preferred Name',
-                        'CLINVAR Preferred Name', 'OMIM IDs', 'MONDO IDs', 'MEDGEN IDs', 'Orphanet IDs',
-                        'Human Phenotype Ontology']
+                        'CLINVAR Preferred Name','CLINVAR Preferred Name', 'OMIM IDs', 'MONDO IDs', 'MEDGEN IDs',
+                        'Orphanet IDs', 'Human Phenotype Ontology']
 
                 variantInfo[query] = {}
                 for key in keys:
@@ -455,7 +709,9 @@ def makeSearch(toSearch, variantInfo, fields):
                 variantInfo[query]['Freqs'] = freqs
                 variantInfo[query]['Alleles'] = alleles
                 variantInfo[query]['Ref'] = ref
-
+                variantInfo[query]['Chrom'] = chrom
+                variantInfo[query]['Pos hg19'] = posHG19
+                variantInfo[query]['Pos hg38'] = posHG38
 
                 variantInfo[query]['CADD Phred'] = phred
                 variantInfo[query]['CADD Annotype'] = annotypeOut
@@ -473,32 +729,24 @@ def makeSearch(toSearch, variantInfo, fields):
                 variantInfo[query]['MEDGEN IDs'] = medgenOut
                 variantInfo[query]['Orphanet IDs'] = orphanetOut
                 variantInfo[query]['Human Phenotype Ontology'] = humanPhenotypeOntologyOut
+        else:
+            notFound.append(var)
 
-    return notFound, variantInfo
+    print(f"\t#Not Found {len(notFound)}")
+    return variantInfo, notFound
 
-def searchSNPs(variantInfo, toSearchDict):
+def searchSNPs(variantInfo, toSearchDict, folderAnot):
     print("Get annotation")
 
     fields = ['clinvar.rcv.conditions.identifiers', 'clinvar.rcv.conditions.name', 'clinvar.rcv.preferred_name',
               'dbsnp.alleles', 'dbsnp.rsid', 'dbsnp.ref', 'cadd.gene.gene_id', 'cadd.gene.genename', 'cadd.annotype',
-              'cadd.consdetail', 'cadd.consequence', 'cadd.consscore', 'cadd.sift.cat', 'cadd.polyphen.cat',
-              'cadd.phred']
+              'cadd.consdetail', 'cadd.consequence', 'cadd.consscore', 'cadd.sift.cat', 'cadd.polyphen.cat','cadd.phred',
+              'clinvar.hg38.start', 'clinvar.hg19.start', 'clinvar.chrom']
 
     toSearch = list(toSearchDict.keys())
-    notFound, variantInfo = makeSearch(toSearch, variantInfo, fields)
+    variantInfo, notFound = makeSearch(toSearch, variantInfo, fields)
 
-    notFoundToSearch = {}
-    for ID in notFound:
-        A2 = toSearchDict[ID]["Allele 1"]
-        A1 = toSearchDict[ID]["Allele 2"]
-        prefix = toSearchDict[ID]["prefix"]
-
-        notFoundToSearch[f"{prefix}{A1}>{A2}"] = ID
-
-    toSearchNotFound = list(notFoundToSearch.keys())
-    notFound, variantInfo = makeSearch(toSearchNotFound, variantInfo, fields)
-
-    return variantInfo
+    return variantInfo, notFound
 
 def isNotNull(data):
     if data != "NA" and data != "":
@@ -540,25 +788,17 @@ def openCorrespondenceFile(fileInput):
             dictCorrespondence[split[0]] = split[1]
     return dictCorrespondence
 
-def createAnnotationTables(line, correspondence, dictCorrespondence, folderAnot):
+def createAnnotationTables(line, folderAnot):
     headerIDsTemp = line.strip().split()
     headerIDs = []
 
     dictOut = {}
 
     for i in range(len(headerIDsTemp)):
-        IDTemp = headerIDsTemp[i]
+        ID = headerIDsTemp[i]
         if i < 9:
-            headerIDs.append(IDTemp)
+            headerIDs.append(ID)
         else:
-            #Change to correspondence list if exists
-            if correspondence != "":
-                if IDTemp in dictCorrespondence:
-                    ID = dictCorrespondence[IDTemp]
-                else:
-                    ID = f"NoCorrespondence_{IDTemp}"
-            else:
-                ID = IDTemp
 
             #Create a unique file to each ID, even if the name is the same
             if ID not in dictOut:
@@ -574,14 +814,117 @@ def createAnnotationTables(line, correspondence, dictCorrespondence, folderAnot)
 
     return dictOut, headerIDs
 
-def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
+
+def readIlluminaSentrix(fileName):
+    file = open(fileName)
+
+    dictReturn = {}
+
+    header = True
+    for line in file:
+        if header:
+            if "Sample_ID" in line:
+                header = False
+        else:
+            if line != "" and line != " " and line != "\n":
+                illuminaID, sentrixBarcode, sentrixPosition = line.strip().split(",")[0:3]
+                sentrixID = f"{sentrixBarcode}_{sentrixPosition}"
+
+                dictReturn[sentrixID] = illuminaID
+
+    return dictReturn
+
+def readIlluminaExternal(fileName):
+    file = open(fileName)
+
+    dictReturn = {}
+
+    header = True
+    for line in file:
+        if header:
+            if "IlluminaID" in line:
+                header = False
+        else:
+            if line != "" and line != " " and line != "\n":
+                illuminaID, externalID = line.strip().split("\t")
+                dictReturn[illuminaID] = externalID.replace(" ", "_").replace("#N/A", "NonLARGE")
+
+    return dictReturn
+
+def extractGenes(genes, interval, VCF, vcfFolder, outputName, bcftools, batchList, logFile):
+    dictGenes = {}
+    file = open(genes)
+    fileToExtract = open(f"{vcfFolder}/toExtract.txt", "w")
+
+
+    for line in file:
+        geneName, chrom, begin, end = line.strip().split()
+        beginInterval = int(begin) - int(interval)
+        endInterval = int(end) + int(interval)
+        fileToExtract.write(f"{chrom}\t{beginInterval}\t{endInterval}\n")
+        dictGenes[geneName]= {}
+        dictGenes[geneName]["Begin"] = beginInterval
+        dictGenes[geneName]["End"] = endInterval
+        dictGenes[geneName]["Chrom"] = int(chrom)
+
+    file.close()
+    fileToExtract.close()
+
+    file = open(batchList)
+    fileChangeName = open(f"{vcfFolder}/toChangeID.txt", "w")
+    externalList = []
+    for line in file:
+        IlluminaExternal, IlluminaSentrix, folder, ID = line.strip().split()
+        dictIlluminaExternal = readIlluminaExternal(IlluminaExternal)
+        dictIllumiaSentrix = readIlluminaSentrix(IlluminaSentrix)
+
+        for sentrixID in dictIllumiaSentrix:
+            illuminaID = dictIllumiaSentrix[sentrixID]
+            externalID = dictIlluminaExternal[illuminaID]
+            changed = False
+            if externalID not in externalList:
+                externalList.append(externalID)
+            else:
+                changed = True
+
+
+                count = 1
+                externalIDBase = externalID
+                externalID = f"{externalIDBase}_{count}"
+
+                while externalID in externalList:
+                    count = count+1
+                    externalID = f"{externalIDBase}_{count}"
+
+                externalList.append(externalID)
+
+            if changed:
+                print(f"The external ID {externalIDBase} ({illuminaID}/{sentrixID}) was changed to {externalID}")
+            else:
+                print(f"We used external ID {externalID} ({illuminaID}/{sentrixID})")
+            fileChangeName.write(f"{sentrixID} {externalID}\n")
+
+    fileChangeName.close()
+
+    execute(f"{bcftools} view -R {vcfFolder}/toExtract.txt -Oz -o {vcfFolder}/{outputName}_extracted.vcf.gz "
+            f"{VCF}", logFile)
+
+    execute(f"{bcftools} reheader -s {vcfFolder}/toChangeID.txt -o {vcfFolder}/{outputName}_externalID.vcf.gz "
+            f"{vcfFolder}/{outputName}_extracted.vcf.gz", logFile)
+
+    return f"{vcfFolder}/{outputName}_externalID.vcf.gz", dictGenes
+
+
+def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, dictGenes, dictFilter, logFile):
     toSearch = readVCFs(vcfName, variantInfo)
-    variantInfo = searchSNPs(variantInfo, toSearch)
+    variantInfo, notFound = searchSNPs(variantInfo, toSearch, folderAnot)
     saveSearch(f"{folderAnot}/{name}_AnnotTable.tsv")
 
-    dictCorrespondence = {}
-    if correspondence != "":
-        dictCorrespondence = openCorrespondenceFile(correspondence)
+    fileNot = open(f"{folderAnot}/{name}_NotFound.tsv", "w")
+    for var in notFound:
+        fileNot.write(f"{var}\n")
+    fileNot.close()
+
 
     print(f"Open VCF file again({vcfName}) ")
 
@@ -597,7 +940,7 @@ def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
             line = line.decode("utf-8")
         if header:
             if "#CHROM" in line:
-                dictOut, headerIDs = createAnnotationTables(line, correspondence, dictCorrespondence, folderAnot)
+                dictOut, headerIDs = createAnnotationTables(line, folderAnot)
                 header = False
         else:
             split = line.strip().split()
@@ -621,10 +964,12 @@ def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
                 if not headerOnOutput:
                     headerOnOutput = True
                     for ind in dictOut:
-                        dictOut[ind].write("Query\tID on VCF\tGenotype")
+                        dictOut[ind].write("Query\tID on VCF\tHomozygous\tGenotype")
                         for item in variantInfo[query]:
                             dictOut[ind].write(f"\t{item}")
-                        dictOut[ind].write("\n")
+
+                        dictOut[ind].write("\t\tFILTER\n")
+
 
 
                 #Select CADD Phred if it is valid
@@ -646,26 +991,134 @@ def openVCFAndSearch(vcfName, variantInfo, folderAnot, name, correspondence):
                         maf = sortedAF[-2]
 
                 if validPhred and validAF:
-                    if variantInfo[query]['CADD Phred'] > 15 and maf < 0.05:
+                    #if maf < 0.05:
+                    if phred > 15 and maf < 0.05:
+                        IDVCF = split[2]
+
                         for i in range(9, len(split)):
                             ID = headerIDs[i]
-                            IDVCF = split[2]
                             information = split[i].split(":")
                             if not turn:
                                 if "1" in information[0]:
                                     information[0] = information[0].replace("0", A0).replace("1", A1)
-                                    dictOut[ID].write(f"{query}\t{IDVCF}\t{information[0]}")
+
+                                    alleles = information[0].split("/")
+                                    print(alleles)
+                                    hom = "FALSE"
+                                    if alleles[0] == alleles[1]:
+                                        hom = "TRUE"
+
+                                    dictOut[ID].write(f"{query}\t{IDVCF}\t{hom}\t{information[0]}")
                                     for item in variantInfo[query]:
                                         dictOut[ID].write(f"\t{variantInfo[query][item]}")
-                                    dictOut[ID].write(f"\n")
+                                    dictOut[ID].write(f"\t\t{dictFilter[IDVCF]}\n")
                             else:
                                 if "0" in information[0]:
                                     information[0] = information[0].replace("1", A1).replace("0", A0)
                                     dictOut[ID].write(f"{query}\t{IDVCF}\t{information[0]}")
                                     for item in variantInfo[query]:
                                         dictOut[ID].write(f"\t{variantInfo[query][item]}")
+                                    dictOut[ID].write(f"\t\t{dictFilter[IDVCF]}\n")
     for ID in dictOut:
         dictOut[ID].close()
+
+
+def createExcelOnToSendFolder(TSV, folder, ind):
+    #code adapted from  https://www.geeksforgeeks.org/convert-a-tsv-file-to-excel-using-python/
+
+    workbook = Workbook(f"{folder}/{ind}.xlsx")
+    worksheet = workbook.add_worksheet()
+
+    readTSV = csv.reader(open(TSV, 'r', encoding='utf-8'), delimiter='\t')
+    for row, data in enumerate(readTSV):
+        worksheet.write_row(row, 0, data)
+    workbook.close()
+
+
+
+def makeSummary(folderAnot, logFile):
+    #Prepare to send -> Summary table
+
+    toSendFolder =  f"{folderAnot}/toSend/"
+    execute(f"mkdir {toSendFolder}", logFile, True)
+    execute(f"wc -l {folderAnot}/*.tsv > {folderAnot}/myTSV.txt", logFile, True)
+
+    summaryDict = {}
+    idRS = {}
+
+
+    fileWC = open(f"{folderAnot}/myTSV.txt")
+    for line in fileWC:
+        split = line.strip().split()
+        if 'Annot_' in split[1]:
+            if int(split[0]) > 1: #Have at least one variant
+                info = split[1].split("Annot_")
+                if "_" in info[1]:
+                    pop = info[1].split("_")[0]
+                else:
+                    pop = info[1][0:2]
+
+                if pop not in summaryDict:
+                    execute(f"mkdir {toSendFolder}/{pop}", logFile, True)
+                    summaryDict[pop] = {}
+
+
+                #execute(f"cp {split[1]} {toSendFolder}/{pop}", logFile, True)
+                ind = info[1].replace(".tsv", "")
+                createExcelOnToSendFolder(split[1], f"{toSendFolder}/{pop}", ind)
+
+
+                idRS[ind] = {}
+
+                fileTSV = open(split[1])
+                header = True
+
+                for line in fileTSV:
+                    if header:
+                        header = False
+                    else:
+                        split = line.strip().split("\t")
+                        rs = split[3]
+
+                        fields =  re.split(r'(\d+)', split[0])
+                        chrom = int(fields[1])
+                        pos = int(fields[3])
+
+
+                        if rs not in idRS[ind]:
+                            idRS[ind][rs] = ""
+                            for gene in dictGenes:
+                                if dictGenes[gene]["Chrom"] == chrom:
+                                    if dictGenes[gene]["Begin"] <= pos <= dictGenes[gene]["End"]:
+                                        if ind not in summaryDict[pop]:
+                                            summaryDict[pop][ind] = {}
+
+                                        if gene not in summaryDict[pop][ind]:
+                                            summaryDict[pop][ind][gene] = 0
+                                        summaryDict[pop][ind][gene] = summaryDict[pop][ind][gene]+1
+
+    print(f"Creating the summary table")
+    for pop in summaryDict:
+        summaryTable = open(f"{toSendFolder}/{pop}/Summary.tsv", 'w')
+        summaryTable.write("ID")
+        for gene in dictGenes:
+            summaryTable.write(f"\t{gene}")
+        summaryTable.write("\n")
+
+        for ind in summaryDict[pop]:
+            summaryTable.write(f"{ind}")
+            for gene in dictGenes:
+                if gene in summaryDict[pop][ind]:
+                    summaryTable.write(f"\t{summaryDict[pop][ind][gene]}")
+                else:
+                    summaryTable.write(f"\t0")
+            summaryTable.write(f"\n")
+        summaryTable.close()
+
+        createExcelOnToSendFolder(f"{toSendFolder}/{pop}/Summary.tsv", f"{toSendFolder}/{pop}/", "Summary")
+
+        execute(f"rm {toSendFolder}/{pop}/Summary.tsv", logFile, True)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='From Illumina to annotation')
@@ -678,19 +1131,28 @@ if __name__ == '__main__':
     requiredCalling.add_argument('-b', '--bpm', help='BPM File from Illumina', required=True)
     requiredCalling.add_argument('-c', '--csv', help='CSV manifest file', required=True)
     requiredCalling.add_argument('-e', '--egt', help='EGT File from Illumina', required=True)
-    requiredCalling.add_argument('-f', '--folder', help='Folder with files from illumina', required=True)
+    #requiredCalling.add_argument('-f', '--folder', help='Folder with files from illumina', required=True)
     requiredCalling.add_argument('-r', '--genomeReference', help='Human genome reference', required=True)
-    requiredCalling.add_argument('-l', '--locusSummary', help='Human genome reference', required=True)
+    requiredCalling.add_argument('-L', '--batchList',
+                                 help='File with four columns: \"IlluminaID_ExternalID, SampleID_SentrixBarcode_SentrixPosition,'
+                                      'Path to RawFiles,ID\" separated by tab', required=True)
+
+    requiredAnnotation = parser.add_argument_group("Required arguments for Annotation")
+    requiredAnnotation.add_argument('-g', '--genes', help='File with gene list to be annotated. Four columns required '
+                                                       '(separated by tab):Gene Name, Chromosome, Begin of the gene (bp), '
+                                                       'End of the gene (bp).', required=True)
+    requiredAnnotation.add_argument('-i', '--interval', help='size (in bp) of the region flanking the genes to be '
+                                                             'included. Default = 1000', required=True, default = 1000)
 
     programs = parser.add_argument_group("Programs")
     programs.add_argument('-B', '--bcftools', help='bcftools', required=False, default="bcftools")
-    programs.add_argument('-i', '--iaap', help='Illumina Array Analysis Platform path ', required=True)
-    programs.add_argument('-p', '--plink2', help='Plink2 path ', required=True)
+    programs.add_argument('-I', '--iaap', help='Illumina Array Analysis Platform path ', required=True)
+    programs.add_argument('-P', '--plink2', help='Plink2 path ', required=True)
 
     optional = parser.add_argument_group("Optional arguments")
     optional.add_argument('-t', '--threads', help='Number of threads', default=96, type=int, required=False)
     optional.add_argument('-q', '--qc', help='QC parameters to VCF', required=False, default="")
-    optional.add_argument('-P', '--previousSearch', help='File with MyVariant previus search', required=False,
+    optional.add_argument('-p', '--previousSearch', help='File with MyVariant previous search', required=False,
                           default="")
     optional.add_argument('-C', '--correspondenceList', help='List with the correspondence Illumina to patientes ID',
                           required=False, default="")
@@ -704,7 +1166,7 @@ if __name__ == '__main__':
 
 
     folderGTC = createFolder(folder+"/GTC/", logFile)
-    generateGTC(args.iaap, args.bpm, args.egt, args.folder, folderGTC, args.threads, logFile)
+    generateGTC(args.iaap, args.bpm, args.egt, folder, folderGTC, args.outputName, args.batchList, args.threads, logFile)
     #generatePED(args.iaap, args.bpm, args.egt, args.folder, folderGTC, args.threads)
 
     allGTCFolder = createFolder(folder+"/GTCAll/", logFile)
@@ -712,11 +1174,19 @@ if __name__ == '__main__':
     VCF = gtc2VCF(args.bcftools, args.bpm, args.egt, args.csv, folderGTC, allGTCFolder, args.genomeReference, vcfFolder, args.threads, args.outputName, logFile)
     parametersQC = readFileQC(args.qc)
 
+    #Change 9/13 -> We do not exclude based on VCF parameters
     VCFQC = basicVCFQC(VCF, parametersQC, args.bcftools, vcfFolder, args.outputName, logFile)
 
-    VCFFinal = basicGenotypingQC(VCFQC, folder, args.outputName, args.plink2, logFile)
 
+    VCFRegion, dictGenes = extractGenes(args.genes, args.interval, VCF, vcfFolder, args.outputName, args.bcftools,
+                                        args.batchList, logFile)
     anotFolder = createFolder(folder + "/Anot/", logFile)
+    infoQC = basicVCFQCToIncludeAsInfo(VCFRegion, parametersQC, anotFolder)
+
+    VCFFinal = basicGenotypingQC(VCFRegion, folder, args.outputName, args.plink2, logFile)
+
+
+
 
     start = time.time()
 
@@ -724,10 +1194,13 @@ if __name__ == '__main__':
     if args.previousSearch != "":
         variantInfo = readPreviousSearchFile(args.previousSearch)
 
-    variantInfo = openVCFAndSearch(VCFFinal, variantInfo, anotFolder, args.outputName, args.correspondenceList)
+    variantInfo = openVCFAndSearch(VCFFinal, variantInfo, anotFolder, args.outputName, dictGenes, infoQC, logFile)
+    makeSummary(anotFolder, logFile)
 
     end = time.time()
     diff = end - start
+
+
 
     logFile.write(f'Annotation using MyVariants\nTime: {diff} seconds\n\n')
     logFile.close()
