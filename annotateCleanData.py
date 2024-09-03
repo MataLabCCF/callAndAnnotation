@@ -802,6 +802,10 @@ def makeSearch(toSearch, variantInfo, fields, dictGenes, pathPrevious):
                     variantInfo[query]['CLINVAR Name'] = name
                     variantInfo[query]['CLINVAR Preferred Name'] = preferredName
                     variantInfo[query]['CLINVAR Clinical Significance'] = clinicalSignificance
+                    if clinvarSignificance != "":
+                        variantInfo[query]['CLINVAR Clinical Significance'] = variantInfo[query]['CLINVAR Clinical Significance']+f";{clinvarSignificance}"
+                        variantInfo[query]['CLINVAR Preferred Name'] = variantInfo[query]['CLINVAR Preferred Name']+f";{clinvarID}"
+
                     variantInfo[query]['OMIM IDs'] = omimOut
                     variantInfo[query]['MONDO IDs'] = mondoOut
                     variantInfo[query]['MEDGEN IDs'] = medgenOut
@@ -852,8 +856,8 @@ def searchSNPs(variantInfo, toSearchDict, folderAnot, dictGenes, previousSearch)
     return variantInfo, notFound, pred
 
 def isClinvarPathogenic(dictData):
-    if 'CLINVAR Significance' in dictData:
-        if "Pathogenic" in dictData['CLINVAR Significance'] or "Likely_pathogenic" in dictData['CLINVAR Significance'] or "risk_factor" in dictData['CLINVAR Significance']:
+    if 'CLINVAR Clinical Significance' in dictData:
+        if "Pathogenic" in dictData['CLINVAR Clinical Significance'] or "Likely_pathogenic" in dictData['CLINVAR Clinical Significance'] or "risk_factor" in dictData['CLINVAR Clinical Significance']:
             #input(f"Returning TRUE {dictData['CLINVAR Significance']}")
             return True
     #input(f"Returning FALSE {dictData['CLINVAR Significance']}")
