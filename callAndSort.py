@@ -28,12 +28,12 @@ def execute(commandLine, logFile, execute = True):
 
 
 #=========================================================== QC ====================================================
-def gtc2VCF(bcftools, bpm, egt, csv, folderGTC, allGTCFolder, genomeReference, vcfFolder, threads, outputName, mem, logFile):
-    for file in os.listdir(folderGTC):
-        line = f"cp {folderGTC}/{file} {allGTCFolder}"
-        #execute(line, logFile)
+def gtc2VCF(bcftools, bpm, egt, csv, folderGTC, genomeReference, vcfFolder, threads, outputName, mem, logFile):
+    #for file in os.listdir(folderGTC):
+    #    line = f"cp {folderGTC}/{file} {allGTCFolder}"
+    #     execute(line, logFile)
 
-    line = f"{bcftools} +gtc2vcf --no-version -Oz --bpm {bpm} --egt {egt} --csv {csv} --gtcs {allGTCFolder} " \
+    line = f"{bcftools} +gtc2vcf --no-version -Oz --bpm {bpm} --egt {egt} --csv {csv} --gtcs {folderGTC} " \
            f"--fasta-ref {genomeReference} --output {vcfFolder}/{outputName}.vcf.gz --threads {threads} " \
            f"--use-gtc-sample-names --adjust-clusters"
     #line = f"{bcftools} +gtc2vcf --no-version -Oz --bpm {bpm} --egt {egt} --csv {csv} --gtcs {allGTCFolder} " \
@@ -52,14 +52,14 @@ def gtc2VCF(bcftools, bpm, egt, csv, folderGTC, allGTCFolder, genomeReference, v
 
 
 
-def generateGTC(iaap, bpm, egt, folder, outFolder, outputName, batchList, threads, logFile):
+def generateGTC(iaap, bpm, egt, folder, outFolder, outputName, batchList, threads, skip, logFile):
     threadsTest = 8
 
     inputFile = open(batchList)
     print(f"Creating the file {folder}/{outputName}_SampleSheet.csv")
     outputFile = open(f"{folder}/{outputName}_SampleSheet.csv", 'w')
     outputFile.write("[Data]\n")
-    outputFile.write("Sample_ID,SentrixBarcode_A,SentrixPosition_A,Path\n")
+    outputFile.write("Sample_ID,SentrixBarcode_A,SentrixPosition_A,P ath\n")
 
     dictBatch = {}
     listID = []
@@ -130,11 +130,13 @@ def generateGTC(iaap, bpm, egt, folder, outFolder, outputName, batchList, thread
         fileSentrix.close()
 
     outputFile.close()
-
-    line = f"{iaap} gencall {bpm} {egt} -s {folder}/{outputName}_SampleSheet.csv --output-gtc {outFolder} " \
-           f"-t {threadsTest} -c 0.2"
-           #f"--gender-estimate-call-rate-threshold -0.1 -t {threadsTest} -c 0.2"
-    execute(line, logFile)
+    if not skip:
+        line = f"{iaap} gencall {bpm} {egt} -s {folder}/{outputName}_SampleSheet.csv --output-gtc {outFolder} " \
+               f"-t {threadsTest} -c 0.2"
+               #f"--gender-estimate-call-rate-threshold -0.1 -t {threadsTest} -c 0.2"
+        execute(line, logFile)
+    else:
+        logFile.write("The parameter --skipGTC was used. skipping the iaap gencall")
 
     return f"{folder}/{outputName}_SampleSheet.csv"
 
@@ -199,6 +201,8 @@ if __name__ == '__main__':
     optional.add_argument('-t', '--threads', help='Number of threads', default=96, type=int, required=False)
     optional.add_argument('-m', '--mem', help='Memmory to bcftools sort', default="75G", required=False)
     optional.add_argument('-a', '--analysis', help='Generate the analysis data', default=False, action="store_true")
+    optional.add_argument('-s', '--skipGTC', default=False, action="store_true",
+                          help='Skip GTC step. Select this parameter if the GTC is already generated and it is in <outputFolder>/GTC', )
     args = parser.parse_args()
 
     folder = args.outputFolder
@@ -206,11 +210,12 @@ if __name__ == '__main__':
     logFile = open(f"{args.outputFolder}/{args.outputName}.log", 'w')
 
     folderGTC = createFolder(folder+"/GTC/", logFile)
-    sampleSheet = generateGTC(args.iaap, args.bpm, args.egt, folder, folderGTC, args.outputName, args.batchList, args.threads, logFile)
+    sampleSheet = generateGTC(args.iaap, args.bpm, args.egt, folder, folderGTC, args.outputName, args.batchList,
+                              args.threads, args.skipGTC, logFile)
 
-    allGTCFolder = createFolder(folder+"/GTCAll/", logFile)
+    #allGTCFolder = createFolder(folder+"/GTCAll/", logFile)
     vcfFolder = createFolder(folder+"/VCFs/", logFile)
-    VCF = gtc2VCF(args.bcftools, args.bpm, args.egt, args.csv, folderGTC, allGTCFolder, args.genomeReference, vcfFolder,
+    VCF = gtc2VCF(args.bcftools, args.bpm, args.egt, args.csv, folderGTC, args.genomeReference, vcfFolder,
             args.threads, args.outputName, args.mem, logFile)
 
     VCFNoLift = removeLiftOverProblems(VCF, args.listError, args.bcftools, args.outputName, vcfFolder)
