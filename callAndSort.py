@@ -231,12 +231,12 @@ if __name__ == '__main__':
         sheetFile = open(sampleSheet)
         headerFile = open(f"{vcfFolder}/toChangeID.txt", "w")
         header = True
-        for line in sampleSheet:
+        for line in sheetFile:
             if header:
                 if "Sample_ID,SentrixBarcode_A,SentrixPosition_A,Path" in line:
                     header = False
             else:
-                ID, barcode, position, path = line.strip().split()
+                ID, barcode, position, path = line.strip().split(",")
                 IDWithoutBatch = ID.split("_B")[0]
                 oldID = f"{barcode}_{position}"
                 headerFile.write(f"{oldID} {IDWithoutBatch}\n")
