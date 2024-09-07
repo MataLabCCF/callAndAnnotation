@@ -1276,9 +1276,16 @@ def writeFiles(vcfName, variantInfo, pred, folderAnot, variantQC, indQC, dictGen
         fileSummary.write("\tQC\t\tAnnotationDate\tScriptVersion\n")
 
         for ind in dictSummary[pop]:
-            batch = dictSampleSheet[ID]["Batch"]
 
-            fileSummary.write(f"{ind}\t{batch}")
+            batchToPrint = ind.split("_")[-1]
+            indToPrint = ind
+            for t in range(1, 1000):
+                indToPrint.replace(f"_B{t}", "")
+            fileSummary.write(f"{indToPrint}\t{batchToPrint}")
+
+            #old
+            #batch = dictSampleSheet[ID]["Batch"]
+            #fileSummary.write(f"{ind}\t{batch}")
 
             toConvert = False
             for gene in dictGenes:
@@ -1372,7 +1379,7 @@ def createExcelOnToSendFolderData(TSV, folder, ind):
                      "Alleles", "Ref", "Genotype", "",
                      "rs","Freqs DBSNP", "Freqs 1000G Phase 3","",
                      "FILTER", "",
-                     "Accepted CADD+MAF", "Accepted Clinvar", "Accepted Predictors (>50%)"]
+                     "Accepted Clinvar", "Accepted CADD+MAF", "Accepted Predictors (>50%)"]
     infoFromCLINVAR = ["ID on VCF", "CLINVAR Name", "CLINVAR Preferred Name", "CLINVAR Clinical Significance", "",
                        "OMIM IDs","MONDO IDs", "MEDGEN IDs", "Orphanet IDs", "Human Phenotype Ontology"]
     infoFromCADD = ["ID on VCF", "CADD Phred", "CADD Annotype", "CADD Consequence Detail", "CADD Consequence",

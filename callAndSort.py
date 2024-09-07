@@ -59,7 +59,7 @@ def generateGTC(iaap, bpm, egt, folder, outFolder, outputName, batchList, thread
     print(f"Creating the file {folder}/{outputName}_SampleSheet.csv")
     outputFile = open(f"{folder}/{outputName}_SampleSheet.csv", 'w')
     outputFile.write("[Data]\n")
-    outputFile.write("Sample_ID,SentrixBarcode_A,SentrixPosition_A,P ath\n")
+    outputFile.write("Sample_ID,SentrixBarcode_A,SentrixPosition_A,Path\n")
 
     dictBatch = {}
     listID = []
@@ -202,7 +202,8 @@ if __name__ == '__main__':
     optional.add_argument('-m', '--mem', help='Memmory to bcftools sort', default="75G", required=False)
     optional.add_argument('-a', '--analysis', help='Generate the analysis data', default=False, action="store_true")
     optional.add_argument('-s', '--skipGTC', default=False, action="store_true",
-                          help='Skip GTC step. Select this parameter if the GTC is already generated and it is in <outputFolder>/GTC', )
+                          help='Skip GTC step. Select this parameter if the GTC is already generated and it is in <outputFolder>/GTC')
+
     args = parser.parse_args()
 
     folder = args.outputFolder
